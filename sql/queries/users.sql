@@ -8,3 +8,10 @@ VALUES (
     $4
 )
 RETURNING *;
+
+-- name: DeleteUsers :exec
+DELETE FROM users;
+
+-- name: GetUsers :many
+SELECT * FROM users
+ORDER BY created_at ASC;
