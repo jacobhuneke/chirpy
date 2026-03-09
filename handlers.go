@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jacobhuneke/chirpy/internal/auth"
 	"github.com/jacobhuneke/chirpy/internal/database"
 )
 
@@ -49,7 +50,8 @@ func (a *apiConfig) handlerReqReset(w http.ResponseWriter, r *http.Request) {
 
 func (a *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Email string `json:"email"`
+		Password string `json:"password"`
+		Email    string `json:"email"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -60,11 +62,18 @@ func (a *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hashed, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, 500, err.Error())
+		return
+	}
+
 	userParams := database.CreateUserParams{
-		ID:        uuid.New(),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-		Email:     params.Email,
+		ID:             uuid.New(),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+		Email:          params.Email,
+		HashedPassword: hashed,
 	}
 
 	user, err := a.db.CreateUser(r.Context(), userParams)
@@ -156,4 +165,30 @@ func (a *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+}
+
+func (a *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Password string `json:"password"`
+		Email    string `json:"email"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, 500, "Something went wrong")
+		return
+	}
+	user, err := a.db.GetUser(r.Context(), params.Email)
+	if err != nil {
+		respondWithError(w, 401, "Unauthorized")
+		return
+	}
+	b, err := auth.CheckPasswordHash(params.Password, user.HashedPassword)
+
+	if err != nil || b == false {
+		respondWithError(w, 401, "Unauthorized")
+		return
+	}
+	respondWithJSON(w, 200, User{user.ID, user.CreatedAt, user.UpdatedAt, user.Email})
 }
