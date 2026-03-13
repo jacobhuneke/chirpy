@@ -283,3 +283,42 @@ func (a *apiConfig) handlerRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(204)
 }
+func (a *apiConfig) handlerUpdateLoginCreds(w http.ResponseWriter, r *http.Request) {
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, 401, err.Error())
+		return
+	}
+	type parameters struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err = decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, 401, err.Error())
+		return
+	}
+	userID, err := auth.ValidateJWT(token, a.secret)
+	if err != nil {
+		respondWithError(w, 401, err.Error())
+		return
+	}
+	hashedPass, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, 401, err.Error())
+		return
+	}
+	newCreds := database.UpdateCredsParams{
+		ID:             userID,
+		Email:          params.Email,
+		HashedPassword: hashedPass,
+	}
+	u, err := a.db.UpdateCreds(r.Context(), newCreds)
+	if err != nil {
+		respondWithError(w, 401, err.Error())
+		return
+	}
+	respondWithJSON(w, 200, UserC{u.ID, u.CreatedAt, u.UpdatedAt, u.Email})
+}
