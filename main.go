@@ -86,6 +86,7 @@ func main() {
 	serveMux.HandleFunc("POST /api/refresh", apicfg.handlerRefresh)
 	serveMux.HandleFunc("POST /api/revoke", apicfg.handlerRevoke)
 	serveMux.HandleFunc("PUT /api/users", apicfg.handlerUpdateLoginCreds)
+	serveMux.HandleFunc("DELETE /api/chirps/{chirpID}", apicfg.handlerDeleteChirp)
 
 	server := http.Server{
 		Addr:    ":8080",

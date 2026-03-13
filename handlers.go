@@ -322,3 +322,40 @@ func (a *apiConfig) handlerUpdateLoginCreds(w http.ResponseWriter, r *http.Reque
 	}
 	respondWithJSON(w, 200, UserC{u.ID, u.CreatedAt, u.UpdatedAt, u.Email})
 }
+
+func (a *apiConfig) handlerDeleteChirp(w http.ResponseWriter, r *http.Request) {
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, 401, err.Error())
+		return
+	}
+	userID, err := auth.ValidateJWT(token, a.secret)
+	if err != nil {
+		respondWithError(w, 401, "Unauthorized")
+		return
+	}
+	path := r.PathValue("chirpID")
+	if path != "" {
+		chirpid, err := uuid.Parse(path)
+		if err != nil {
+			respondWithError(w, 404, "couldnt get path uuid")
+			return
+		}
+		chirp, err := a.db.GetChirp(r.Context(), chirpid)
+		if err != nil {
+			respondWithError(w, 404, "could not get chirp")
+			return
+		}
+		if chirp.UserID != userID {
+			respondWithError(w, 403, "Forbidden")
+			return
+		}
+		err = a.db.DeleteChirpByID(r.Context(), chirpid)
+		if err != nil {
+			respondWithError(w, 404, "could not delete chirp")
+			return
+		}
+		w.WriteHeader(204)
+	}
+	respondWithError(w, 403, "must pass a chirp id")
+}
