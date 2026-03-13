@@ -19,13 +19,22 @@ type apiConfig struct {
 	dbURL          string
 	platform       string
 	db             database.Queries
+	secret         string
 }
-
-type User struct {
+type UserC struct {
 	ID        uuid.UUID `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+}
+
+type UserL struct {
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
 }
 
 type Chirp struct {
@@ -47,6 +56,7 @@ func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
 	platform := os.Getenv("PLATFORM")
+	secret := os.Getenv("SECRET")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatal(err)
@@ -59,6 +69,7 @@ func main() {
 		dbURL:          dbURL,
 		platform:       platform,
 		db:             *dbQueries,
+		secret:         secret,
 	}
 
 	serveMux := http.NewServeMux()
@@ -72,6 +83,8 @@ func main() {
 	serveMux.HandleFunc("GET /api/chirps", apicfg.handlerGetChirps)
 	serveMux.HandleFunc("GET /api/chirps/{chirpID}", apicfg.handlerGetChirp)
 	serveMux.HandleFunc("POST /api/login", apicfg.handlerLogin)
+	serveMux.HandleFunc("POST /api/refresh", apicfg.handlerRefresh)
+	serveMux.HandleFunc("POST /api/revoke", apicfg.handlerRevoke)
 
 	server := http.Server{
 		Addr:    ":8080",

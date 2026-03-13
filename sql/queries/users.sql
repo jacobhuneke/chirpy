@@ -17,6 +17,10 @@ DELETE FROM users;
 SELECT * FROM users
 ORDER BY created_at ASC;
 
--- name: GetUser :one
+-- name: GetUserByEmail :one
 SELECT * FROM users
 WHERE email = $1;
+
+-- name: GetUserByID :one
+SELECT * FROM users
+WHERE id = $1;

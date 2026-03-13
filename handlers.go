@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -35,8 +36,17 @@ func (a *apiConfig) handlerReqReset(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 403, "Forbidden")
 		return
 	}
-
-	err := a.db.DeleteUsers(r.Context())
+	err := a.db.DeleteRefreshTokens(r.Context())
+	if err != nil {
+		respondWithError(w, 500, "Something went wrong")
+		return
+	}
+	err = a.db.DeleteChirps(r.Context())
+	if err != nil {
+		respondWithError(w, 500, "Something went wrong")
+		return
+	}
+	err = a.db.DeleteUsers(r.Context())
 	if err != nil {
 		respondWithError(w, 500, "Something went wrong")
 		return
@@ -81,16 +91,17 @@ func (a *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 500, "Something went wrong")
 		return
 	}
-	respondWithJSON(w, 201, User{user.ID, user.CreatedAt, user.UpdatedAt, user.Email})
+	respondWithJSON(w, 201, UserC{user.ID, user.CreatedAt, user.UpdatedAt, user.Email})
 }
 
 func (a *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
+	//sets input parameters, the chirp and the user
 	type parameters struct {
 		Body   string    `json:"body"`
 		UserID uuid.UUID `json:"user_id"`
 	}
 
-	bannedWords := []string{"kerfuffle", "sharbert", "fornax"}
+	//reads request body into parameters
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
 	err := decoder.Decode(&params)
@@ -99,10 +110,25 @@ func (a *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	//validate the user
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil || token == "" {
+		respondWithError(w, 401, "Unauthorized")
+		return
+	}
+	id, err := auth.ValidateJWT(token, a.secret)
+	if err != nil {
+		respondWithError(w, 401, "Unauthorized")
+		return
+	}
+
+	//list of banned words to check chirp for, formats body string for check
+	bannedWords := []string{"kerfuffle", "sharbert", "fornax"}
 	lowercaseBody := strings.ToLower(params.Body)
 	splLowerBody := strings.Split(lowercaseBody, " ")
 	splRegBody := strings.Split(params.Body, " ")
 
+	//checks and censors
 	for i, word := range splLowerBody {
 		for _, banned := range bannedWords {
 			if word == banned {
@@ -111,17 +137,18 @@ func (a *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	//checks if chirp is too long
 	if len(params.Body) > 140 {
 		errString := "Chirp is too long"
 		respondWithError(w, 400, errString)
 		return
-	} else {
+	} else { //creates a new chirp in the database and returns it
 		chirpParams := database.CreateChirpParams{
 			ID:        uuid.New(),
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 			Body:      strings.Join(splRegBody, " "),
-			UserID:    params.UserID,
+			UserID:    id,
 		}
 		params.Body = strings.Join(splRegBody, " ")
 		chirp, err := a.db.CreateChirp(r.Context(), chirpParams)
@@ -169,8 +196,9 @@ func (a *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
 
 func (a *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Password string `json:"password"`
-		Email    string `json:"email"`
+		Password           string `json:"password"`
+		Email              string `json:"email"`
+		Expires_in_seconds *int   `json:"expires_in_seconds,omitempty"`
 	}
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
@@ -179,7 +207,8 @@ func (a *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 500, "Something went wrong")
 		return
 	}
-	user, err := a.db.GetUser(r.Context(), params.Email)
+
+	user, err := a.db.GetUserByEmail(r.Context(), params.Email)
 	if err != nil {
 		respondWithError(w, 401, "Unauthorized")
 		return
@@ -190,5 +219,67 @@ func (a *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 401, "Unauthorized")
 		return
 	}
-	respondWithJSON(w, 200, User{user.ID, user.CreatedAt, user.UpdatedAt, user.Email})
+
+	token, err := auth.MakeJWT(user.ID, a.secret, time.Hour)
+	if err != nil {
+		respondWithError(w, 401, err.Error())
+		return
+	}
+	refresh_token := auth.MakeRefreshToken()
+	rt_params := database.CreateRefreshTokenParams{
+		Token:     refresh_token,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(1440 * time.Hour),
+		RevokedAt: sql.NullTime{},
+	}
+	_, err = a.db.CreateRefreshToken(r.Context(), rt_params)
+	if err != nil {
+		respondWithError(w, 401, err.Error())
+		return
+	}
+
+	respondWithJSON(w, 200, UserL{user.ID, user.CreatedAt, user.UpdatedAt, user.Email, token, refresh_token})
+}
+
+func (a *apiConfig) handlerRefresh(w http.ResponseWriter, r *http.Request) {
+	rt, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, 401, err.Error())
+		return
+	}
+	refresh_token, err := a.db.GetUserFromRefreshToken(r.Context(), rt)
+	if err != nil {
+		respondWithError(w, 401, "cannot get user")
+		return
+	}
+	if refresh_token.RevokedAt.Valid || refresh_token.ExpiresAt.Before(time.Now()) {
+		respondWithError(w, 401, "invalid token")
+		return
+	}
+	token, err := auth.MakeJWT(refresh_token.UserID, a.secret, time.Duration(3600*time.Second))
+	if err != nil {
+		respondWithError(w, 401, "cannot make token")
+		return
+	}
+	respondWithJSON(w, 200, struct {
+		Token string `json:"token"`
+	}{
+		Token: token,
+	})
+}
+
+func (a *apiConfig) handlerRevoke(w http.ResponseWriter, r *http.Request) {
+	rt, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, 401, err.Error())
+		return
+	}
+	_, err = a.db.RevokeRefreshToken(r.Context(), rt)
+	if err != nil {
+		respondWithError(w, 401, "Cannot revoke")
+		return
+	}
+	w.WriteHeader(204)
 }
