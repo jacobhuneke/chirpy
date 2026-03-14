@@ -22,10 +22,11 @@ type apiConfig struct {
 	secret         string
 }
 type UserC struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
+	ID          uuid.UUID `json:"id"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Email       string    `json:"email"`
+	IsChirpyRed bool      `json:"is_chirpy_red"`
 }
 
 type UserL struct {
@@ -35,6 +36,7 @@ type UserL struct {
 	Email        string    `json:"email"`
 	Token        string    `json:"token"`
 	RefreshToken string    `json:"refresh_token"`
+	IsChirpyRed  bool      `json:"is_chirpy_red"`
 }
 
 type Chirp struct {
@@ -87,6 +89,7 @@ func main() {
 	serveMux.HandleFunc("POST /api/revoke", apicfg.handlerRevoke)
 	serveMux.HandleFunc("PUT /api/users", apicfg.handlerUpdateLoginCreds)
 	serveMux.HandleFunc("DELETE /api/chirps/{chirpID}", apicfg.handlerDeleteChirp)
+	serveMux.HandleFunc("POST /api/polka/webhooks", apicfg.handlerUpgradeRed)
 
 	server := http.Server{
 		Addr:    ":8080",

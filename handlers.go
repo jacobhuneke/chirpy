@@ -91,7 +91,7 @@ func (a *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 500, "Something went wrong")
 		return
 	}
-	respondWithJSON(w, 201, UserC{user.ID, user.CreatedAt, user.UpdatedAt, user.Email})
+	respondWithJSON(w, 201, UserC{user.ID, user.CreatedAt, user.UpdatedAt, user.Email, user.IsChirpyRed})
 }
 
 func (a *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
@@ -240,7 +240,7 @@ func (a *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondWithJSON(w, 200, UserL{user.ID, user.CreatedAt, user.UpdatedAt, user.Email, token, refresh_token})
+	respondWithJSON(w, 200, UserL{user.ID, user.CreatedAt, user.UpdatedAt, user.Email, token, refresh_token, user.IsChirpyRed})
 }
 
 func (a *apiConfig) handlerRefresh(w http.ResponseWriter, r *http.Request) {
@@ -320,7 +320,7 @@ func (a *apiConfig) handlerUpdateLoginCreds(w http.ResponseWriter, r *http.Reque
 		respondWithError(w, 401, err.Error())
 		return
 	}
-	respondWithJSON(w, 200, UserC{u.ID, u.CreatedAt, u.UpdatedAt, u.Email})
+	respondWithJSON(w, 200, UserC{u.ID, u.CreatedAt, u.UpdatedAt, u.Email, u.IsChirpyRed})
 }
 
 func (a *apiConfig) handlerDeleteChirp(w http.ResponseWriter, r *http.Request) {
@@ -358,4 +358,31 @@ func (a *apiConfig) handlerDeleteChirp(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 	}
 	respondWithError(w, 403, "must pass a chirp id")
+}
+
+func (a *apiConfig) handlerUpgradeRed(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Event string `json:"event"`
+		Data  struct {
+			UserID uuid.UUID `json:"user_id"`
+		} `json:"data"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, 401, err.Error())
+		return
+	}
+	if params.Event != "user.upgraded" {
+		w.WriteHeader(204)
+		return
+	}
+	_, err = a.db.UpgradeRedByUserID(r.Context(), params.Data.UserID)
+	if err != nil {
+		respondWithError(w, 404, err.Error())
+		return
+	}
+	w.WriteHeader(204)
 }
