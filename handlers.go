@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -161,10 +162,30 @@ func (a *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
-	chirps, err := a.db.GetChirps(r.Context())
-	if err != nil {
-		respondWithError(w, 400, err.Error())
-		return
+	auth := r.URL.Query().Get("author_id")
+	s := r.URL.Query().Get("sort")
+	var chirps []database.Chirp
+	var err error
+	if auth != "" {
+		user_id, err := uuid.Parse(auth)
+		if err != nil {
+			respondWithError(w, 400, err.Error())
+			return
+		}
+		chirps, err = a.db.GetChirpsByAuthor(r.Context(), user_id)
+		if err != nil {
+			respondWithError(w, 400, err.Error())
+			return
+		}
+	} else {
+		chirps, err = a.db.GetChirps(r.Context())
+		if err != nil {
+			respondWithError(w, 400, err.Error())
+			return
+		}
+	}
+	if s != "" && s == "desc" {
+		sort.Slice(chirps, func(i, j int) bool { return chirps[i].CreatedAt.After(chirps[j].CreatedAt) })
 	}
 	jsonchirps := []Chirp{}
 	for _, chirp := range chirps {
@@ -361,6 +382,15 @@ func (a *apiConfig) handlerDeleteChirp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *apiConfig) handlerUpgradeRed(w http.ResponseWriter, r *http.Request) {
+	polkaKey, err := auth.GetAPIKey(r.Header)
+	if err != nil {
+		w.WriteHeader(401)
+		return
+	}
+	if polkaKey != a.polka_key {
+		w.WriteHeader(401)
+		return
+	}
 	type parameters struct {
 		Event string `json:"event"`
 		Data  struct {
@@ -370,7 +400,7 @@ func (a *apiConfig) handlerUpgradeRed(w http.ResponseWriter, r *http.Request) {
 
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		respondWithError(w, 401, err.Error())
 		return
